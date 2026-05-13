@@ -1,4 +1,4 @@
-import { ASSET_EXTRACTION_PROMPT, PIVOT_GENERATION_PROMPT } from './prompts'
+import { ASSET_EXTRACTION_PROMPT, CHILD_PIVOT_PROMPT, EVALUATION_PROMPT, ROOT_PIVOT_PROMPT } from './prompts'
 import type { PivotPattern } from './neo4j'
 
 export interface KimchiConfig {
@@ -6,14 +6,21 @@ export interface KimchiConfig {
 	baseUrl: string
 }
 
-export interface Pivot {
+export interface PivotNode {
+	id: string
 	title: string
 	description: string
 	rationale: string
 	desperationLevel: number
 	advisorType: string
 	inspiredBy: string | null
+	level: number
+	parentId: string | null
+	selected: boolean
 }
+
+// keep old Pivot type so any existing references compile
+export type Pivot = PivotNode
 
 async function callLLM(
 	systemPrompt: string,
@@ -54,13 +61,93 @@ export async function extractAssets(
 	const content = await callLLM(
 		ASSET_EXTRACTION_PROMPT,
 		`Startup: ${input.description}\nWhat's failing: ${input.failing}`,
-		'gpt-4o-mini',
+		'kimi-k2.5',
 		config
 	)
 	const parsed = JSON.parse(content) as { assets: string[] }
 	return parsed.assets
 }
 
+function makeId(): string {
+	return Math.random().toString(36).slice(2, 9)
+}
+
+export async function generateRootPivots(
+	input: { description: string; failing: string; assets: string[]; patterns: PivotPattern[] },
+	config: KimchiConfig
+): Promise<PivotNode[]> {
+	const content = await callLLM(
+		'You are a creative startup advisor. Return only valid JSON.',
+		ROOT_PIVOT_PROMPT(input.description, input.failing, input.assets, input.patterns),
+		'kimi-k2.5',
+		config
+	)
+	const parsed = JSON.parse(content) as {
+		pivots: Omit<PivotNode, 'id' | 'level' | 'parentId' | 'selected'>[]
+	}
+	return parsed.pivots.slice(0, 6).map((p) => ({
+		...p,
+		id: makeId(),
+		level: 1,
+		parentId: null,
+		selected: false,
+	}))
+}
+
+export async function generateChildPivots(
+	parent: PivotNode,
+	input: { description: string; failing: string; assets: string[] },
+	config: KimchiConfig
+): Promise<PivotNode[]> {
+	const content = await callLLM(
+		'You are a creative startup advisor drilling into a specific pivot direction. Return only valid JSON.',
+		CHILD_PIVOT_PROMPT(
+			parent.title,
+			parent.description,
+			input.description,
+			input.failing,
+			input.assets
+		),
+		'kimi-k2.5',
+		config
+	)
+	const parsed = JSON.parse(content) as {
+		pivots: Omit<PivotNode, 'id' | 'level' | 'parentId' | 'selected' | 'inspiredBy'>[]
+	}
+	return parsed.pivots.slice(0, 6).map((p) => ({
+		...p,
+		inspiredBy: null,
+		id: makeId(),
+		level: parent.level + 1,
+		parentId: parent.id,
+		selected: false,
+	}))
+}
+
+export async function evaluateAndSelect(
+	allNodes: PivotNode[],
+	input: { description: string; failing: string; assets: string[] },
+	config: KimchiConfig
+): Promise<string[]> {
+	const candidates = allNodes.map((n) => ({
+		id: n.id,
+		title: n.title,
+		description: n.description,
+		level: n.level,
+	}))
+
+	const content = await callLLM(
+		'You are evaluating startup pivot ideas. Return only valid JSON.',
+		EVALUATION_PROMPT(input.description, input.failing, input.assets, candidates),
+		'kimi-k2.5',
+		config
+	)
+	const parsed = JSON.parse(content) as { selected: string[] }
+	const validIds = new Set(allNodes.map((n) => n.id))
+	return parsed.selected.filter((id) => validIds.has(id)).slice(0, 5)
+}
+
+// legacy — not used in new flow but kept so old import compiles
 export async function generatePivots(
 	input: {
 		description: string
@@ -69,13 +156,6 @@ export async function generatePivots(
 		patterns: PivotPattern[]
 	},
 	config: KimchiConfig
-): Promise<Pivot[]> {
-	const content = await callLLM(
-		'You are a creative startup advisor. Return only valid JSON.',
-		PIVOT_GENERATION_PROMPT(input.description, input.failing, input.assets, input.patterns),
-		'gpt-4o',
-		config
-	)
-	const parsed = JSON.parse(content) as { pivots: Pivot[] }
-	return parsed.pivots.sort((a, b) => a.desperationLevel - b.desperationLevel)
+): Promise<PivotNode[]> {
+	return generateRootPivots(input, config)
 }

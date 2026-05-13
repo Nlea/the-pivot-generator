@@ -1,3 +1,5 @@
+import type { PivotNode } from './kimchi'
+
 export interface Neo4jConfig {
 	uri: string
 	username: string
@@ -17,7 +19,7 @@ export async function findPivotPatterns(
 	config: Neo4jConfig
 ): Promise<PivotPattern[]> {
 	const query = `
-    MATCH (s:Startup)-[:HAS_ASSET]->(a:AssetType)<-[:HAS_ASSET]-(p:PivotPattern)
+    MATCH (p:PivotPattern)-[:HAS_ASSET]->(a:AssetType)
     WHERE a.name IN $assets
     WITH p, collect(DISTINCT a.name) AS sharedAssets
     MATCH (p)-[:PIVOTED_FROM]->(from:Domain)
@@ -56,5 +58,68 @@ export async function findPivotPatterns(
 			sharedAssets: record.sharedAssets as string[],
 			outcome: record.outcome as string,
 		}
+	})
+}
+
+export async function storePivotTree(
+	sessionId: string,
+	startup: string,
+	nodes: PivotNode[],
+	links: { source: string; target: string }[],
+	config: Neo4jConfig
+): Promise<void> {
+	const httpEndpoint = config.uri.replace('neo4j+s://', 'https://').replace('neo4j://', 'http://')
+	const headers = {
+		'Content-Type': 'application/json',
+		Authorization: `Basic ${btoa(`${config.username}:${config.password}`)}`,
+	}
+
+	const nodeParams = nodes.map((n) => ({
+		id: n.id,
+		title: n.title,
+		description: n.description,
+		level: n.level,
+		desperationLevel: n.desperationLevel,
+		selected: n.selected,
+	}))
+
+	// Create session node + all pivot nodes
+	await fetch(`${httpEndpoint}/db/neo4j/query/v2`, {
+		method: 'POST',
+		headers,
+		body: JSON.stringify({
+			query: `
+        MERGE (s:PivotSession {id: $sessionId})
+        SET s.startup = $startup, s.createdAt = timestamp()
+        WITH s
+        UNWIND $nodes AS n
+        CREATE (p:GeneratedPivot {
+          id: n.id,
+          title: n.title,
+          description: n.description,
+          level: n.level,
+          desperationLevel: n.desperationLevel,
+          selected: n.selected,
+          sessionId: $sessionId
+        })
+        CREATE (s)-[:CONTAINS]->(p)
+      `,
+			parameters: { sessionId, startup, nodes: nodeParams },
+		}),
+	})
+
+	// Create SPAWNED relationships between pivots
+	await fetch(`${httpEndpoint}/db/neo4j/query/v2`, {
+		method: 'POST',
+		headers,
+		body: JSON.stringify({
+			query: `
+        UNWIND $links AS l
+        MATCH (parent:GeneratedPivot {id: l.source, sessionId: $sessionId})
+        MATCH (child:GeneratedPivot {id: l.target, sessionId: $sessionId})
+        CREATE (parent)-[:SPAWNED]->(child)
+      `,
+			parameters: { sessionId, links },
+		}),
 	})
 }

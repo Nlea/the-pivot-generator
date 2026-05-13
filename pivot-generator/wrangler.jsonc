@@ -6,10 +6,10 @@
 		"enabled": true,
 	},
 	"vars": {
-		"NEO4J_URI": "",
-		"NEO4J_USERNAME": "neo4j",
-		"NEO4J_PASSWORD": "",
-		"KIMCHI_API_KEY": "",
-		"KIMCHI_BASE_URL": "https://api.kimchi.dev/v1"
+		"NEO4J_URI": "neo4j+s://8ac12d9a.databases.neo4j.io",
+		"NEO4J_USERNAME": "8ac12d9a",
+		"NEO4J_PASSWORD": "6pVhBzqn-KRLRBl-rvQ4jaJuWWvwDYmiJCORQTeUQ1M",
+		"KIMCHI_API_KEY": "castai_v1_ef722dc19c9c106f0156d39fff890d3b5fed2842bf615d1ee3367d4d1a4be95d_bcbbd153",
+		"KIMCHI_BASE_URL": "https://llm.kimchi.dev/openai/v1"
 	}
 }

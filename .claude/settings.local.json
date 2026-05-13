@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:kimchi.dev)",
+      "WebFetch(domain:hubble.social)",
+      "Bash(fp --version)",
+      "Bash(fp tree *)",
+      "Bash(fp issue *)",
+      "Bash(fp comment *)",
+      "Bash(npm create *)",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(git commit *)",
+      "Bash(npx wrangler *)"
+    ]
+  }
+}
