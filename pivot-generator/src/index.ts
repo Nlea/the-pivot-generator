@@ -1,5 +1,7 @@
 import { Hono } from 'hono'
+import { streamSSE } from 'hono/streaming'
 import { extractAssets, evaluateAndSelect, generateChildPivots, generateRootPivots } from './lib/kimchi'
+import type { PivotNode } from './lib/kimchi'
 import { findPivotPatterns, storePivotTree } from './lib/neo4j'
 import { renderUI } from './ui'
 
@@ -25,40 +27,75 @@ app.post('/pivot', async (c) => {
 	}
 	const startup = { description: body.description, failing: body.failing }
 
-	// Extract assets then find historical patterns
-	const assets = await extractAssets(startup, kimchiConfig)
-	const patterns = await findPivotPatterns(assets, neo4jConfig)
+	return streamSSE(c, async (stream) => {
+		const send = (event: string, data: unknown) =>
+			stream.writeSSE({ event, data: JSON.stringify(data) })
 
-	// Level 1: 6 broad pivot directions
-	const level1 = await generateRootPivots({ ...startup, assets, patterns }, kimchiConfig)
+		// Assets + patterns
+		const assets = await extractAssets(startup, kimchiConfig)
+		await send('assets', { assets })
 
-	// Level 2: 6 children per level-1 pivot (36 total), run in parallel
-	const level2Results = await Promise.allSettled(
-		level1.map((parent) => generateChildPivots(parent, { ...startup, assets }, kimchiConfig))
-	)
-	const level2 = level2Results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
+		const patterns = await findPivotPatterns(assets, neo4jConfig)
+		await send('patterns', { patterns })
 
-	// Level 3: 6 children per level-2 pivot (up to 216 total), run in parallel
-	const level3Results = await Promise.allSettled(
-		level2.map((parent) => generateChildPivots(parent, { ...startup, assets }, kimchiConfig))
-	)
-	const level3 = level3Results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
+		// Level 1 — 6 root pivots
+		const level1 = await generateRootPivots({ ...startup, assets, patterns }, kimchiConfig)
+		for (const node of level1) await send('node', node)
 
-	const allNodes = [...level1, ...level2, ...level3]
-	const links = allNodes
-		.filter((n) => n.parentId !== null)
-		.map((n) => ({ source: n.parentId!, target: n.id }))
+		// Level 2 — 6 children per L1 pivot, parallel; emit each batch as it arrives
+		const level2: PivotNode[] = []
+		await Promise.all(
+			level1.map(async (parent) => {
+				try {
+					const children = await generateChildPivots(parent, { ...startup, assets }, kimchiConfig)
+					for (const node of children) {
+						level2.push(node)
+						await send('node', node)
+					}
+				} catch {}
+			})
+		)
 
-	// Evaluate and select top 5 from the full tree
-	const selectedIds = await evaluateAndSelect(allNodes, { ...startup, assets }, kimchiConfig)
-	const nodes = allNodes.map((n) => ({ ...n, selected: selectedIds.includes(n.id) }))
-	const selected = nodes.filter((n) => n.selected)
+		// Level 3 — 6 children per L2 pivot, parallel; emit each batch as it arrives
+		const level3: PivotNode[] = []
+		await Promise.all(
+			level2.map(async (parent) => {
+				try {
+					const children = await generateChildPivots(parent, { ...startup, assets }, kimchiConfig)
+					for (const node of children) {
+						level3.push(node)
+						await send('node', node)
+					}
+				} catch {}
+			})
+		)
 
-	// Store the full exploration tree in Neo4j (fire and forget)
-	const sessionId = crypto.randomUUID()
-	c.executionCtx.waitUntil(storePivotTree(sessionId, body.description, nodes, links, neo4jConfig))
+		const allNodes = [...level1, ...level2, ...level3]
+		const links = allNodes
+			.filter((n) => n.parentId !== null)
+			.map((n) => ({ source: n.parentId!, target: n.id }))
 
-	return c.json({ selected, nodes, links, patterns, totalExplored: allNodes.length })
+		// Evaluate — pick top 5
+		const selectedIds = await evaluateAndSelect(allNodes, { ...startup, assets }, kimchiConfig)
+		const selectedNodes = allNodes
+			.filter((n) => selectedIds.includes(n.id))
+			.map((n) => ({ ...n, selected: true }))
+		await send('selected', { selectedIds, selectedNodes, patterns })
+
+		await send('done', { totalExplored: allNodes.length })
+
+		// Persist tree to Neo4j in the background
+		const sessionId = crypto.randomUUID()
+		c.executionCtx.waitUntil(
+			storePivotTree(
+				sessionId,
+				body.description,
+				allNodes.map((n) => ({ ...n, selected: selectedIds.includes(n.id) })),
+				links,
+				neo4jConfig
+			)
+		)
+	})
 })
 
 export default app

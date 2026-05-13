@@ -1,0 +1,15 @@
+{
+  "name": "pivot-generator",
+  "mode": "vendored",
+  "dependencies": {
+    "neo4j-contrib/neo4j-skills": {
+      "version": "66ed0e14ef6fa33973f21c35f9c03e4738bfb63e",
+      "source": "https://github.com/neo4j-contrib/neo4j-skills",
+      "include": {
+        "skills": [
+          "neo4j-cypher-skill"
+        ]
+      }
+    }
+  }
+}
