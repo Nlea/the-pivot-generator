@@ -1,0 +1,94 @@
+name: pivot-generator
+version: 1.0.0
+description: Spec-driven pivot suggestion agent for failing startups
+
+input:
+  schema:
+    description:
+      type: string
+      description: What the startup currently does
+      required: true
+    failing:
+      type: string
+      description: What is not working / the core problem
+      required: true
+    assets:
+      type: array
+      items:
+        type: string
+        enum:
+          - user-data
+          - payment-infrastructure
+          - media-upload
+          - social-graph
+          - messaging
+          - scheduling
+          - search
+          - marketplace
+          - b2b-relationships
+          - consumer-audience
+          - mobile-app
+          - api
+          - content-library
+          - recommendation-engine
+          - location-data
+          - team-productivity
+      description: Core transferable assets extracted from the startup
+      minItems: 2
+      maxItems: 4
+    patterns:
+      type: array
+      description: Historical pivot patterns from Neo4j matching the startup's assets
+
+output:
+  schema:
+    pivots:
+      type: array
+      minItems: 5
+      maxItems: 5
+      items:
+        title:
+          type: string
+          maxLength: 60
+        description:
+          type: string
+          maxLength: 400
+        rationale:
+          type: string
+          maxLength: 200
+        desperationLevel:
+          type: integer
+          minimum: 1
+          maximum: 5
+          description: >
+            1 = pragmatic refinement,
+            2 = reasonable pivot,
+            3 = bold bet,
+            4 = desperate move,
+            5 = fully unhinged but technically feasible
+        advisorType:
+          type: string
+          enum: [GTM, Product, Finance, Growth, Technical, Fundraising]
+        inspiredBy:
+          type: string
+          nullable: true
+          description: Name of a real company that made a similar pivot
+
+constraints:
+  - Each pivot must leverage at least one of the provided assets
+  - Desperation levels must be strictly 1, 2, 3, 4, 5 (one of each)
+  - Level 5 must be creative and unexpected but not physically impossible
+  - inspiredBy must reference a real company when a relevant pattern exists
+  - No two pivots may target the same domain
+
+models:
+  asset_extraction:
+    provider: kimchi
+    model: gpt-4o-mini
+    temperature: 0.3
+    response_format: json_object
+  pivot_generation:
+    provider: kimchi
+    model: gpt-4o
+    temperature: 0.8
+    response_format: json_object

@@ -1,0 +1,15 @@
+{
+	"name": "pivot-generator",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-05-13",
+	"observability": {
+		"enabled": true,
+	},
+	"vars": {
+		"NEO4J_URI": "",
+		"NEO4J_USERNAME": "neo4j",
+		"NEO4J_PASSWORD": "",
+		"KIMCHI_API_KEY": "",
+		"KIMCHI_BASE_URL": "https://api.kimchi.dev/v1"
+	}
+}
