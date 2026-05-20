@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "WebSearch"
+      "WebSearch",
+      "Bash(git -C /Users/nlea/Spaghetti/hacknight-ldn diff pivot-generator/scripts/seed.cypher)"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "tessl"
+  ]
 }
